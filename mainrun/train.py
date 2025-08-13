@@ -1,4 +1,4 @@
-import utils
+# import utils
 import math, random, time
 from dataclasses import dataclass
 import json
@@ -12,6 +12,7 @@ from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
 from tqdm import tqdm
 import structlog
 from transformers import get_cosine_schedule_with_warmup
+from utils.dataset_utils import sliding_window
 
 @dataclass
 class Hyperparameters:
@@ -29,6 +30,7 @@ class Hyperparameters:
     epochs: int = 7
     seed: int = 1337
     num_titles: int = 100_000
+    context_len: int = 8
     val_frac: float = 0.10
     log_file: str = "./logs/mainrun.log"
 
@@ -235,9 +237,15 @@ def main():
     train_titles, val_titles = get_titles(args.num_titles, args.seed, args.val_frac)
     
     eos_token = "<eos>"
-    tok = BPETokenizer(train_tokenizer(train_titles+val_titles, args.vocab_size, eos_token=eos_token))
-    train_text = eos_token.join(train_titles) + eos_token
+    
+    train_contexts = sliding_window(train_titles, args.context_len)
+    
+    train_text = eos_token.join(train_contexts) + eos_token
     val_text = eos_token.join(val_titles) + eos_token
+    
+    tok = BPETokenizer(train_tokenizer(train_text+val_text, args.vocab_size, eos_token=eos_token))
+    # train_text = eos_token.join(train_titles) + eos_token
+    # val_text = eos_token.join(val_titles) + eos_token
     train_ids = torch.tensor(tok.encode(train_text), dtype=torch.long)
     val_ids = torch.tensor(tok.encode(val_text), dtype=torch.long)
     
