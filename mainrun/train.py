@@ -11,6 +11,7 @@ from datasets import load_dataset
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
 from tqdm import tqdm
 import structlog
+from transformers import get_cosine_schedule_with_warmup
 
 @dataclass
 class Hyperparameters:
@@ -262,8 +263,17 @@ def main():
     model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.log("model_info", parameters_count=model_params)
     
-    opt = torch.optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max_steps)
+    opt = torch.optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        betas=(0.9, 0.95),
+    )
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer=opt,
+        num_warmup_steps=int(0.1 * max_steps),
+        num_training_steps=max_steps,
+    )
 
     def evaluate():
         model.eval()
