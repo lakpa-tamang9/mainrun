@@ -266,8 +266,6 @@ def main(train_name: str, pad_mode: str):
     val_text = eos_token.join(val_titles) + eos_token
     
     tok = BPETokenizer(train_tokenizer(train_text+val_text, args.vocab_size, args.min_length, args.max_length, eos_token=eos_token))
-    # train_text = eos_token.join(train_titles) + eos_token
-    # val_text = eos_token.join(val_titles) + eos_token
     train_ids = torch.tensor(tok.encode(train_text), dtype=torch.long)
     val_ids = torch.tensor(tok.encode(val_text), dtype=torch.long)
     
