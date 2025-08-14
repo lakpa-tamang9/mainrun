@@ -33,6 +33,11 @@ class Hyperparameters:
     context_len: int = 8
     val_frac: float = 0.10
     log_file: str = "./logs/mainrun.log"
+    
+    # Consistency regularization parameters
+    consistency: bool = True
+    consistency_weight: float = 0.01
+    ema_decay = 0.95
 
 def configure_logging(log_file: str):
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +109,11 @@ def iter_full_split(split_ids: torch.Tensor, block_size: int, batch_size: int, d
         yield x, y
 
 def train_tokenizer(titles: list[str], vocab_size: int, unk_token: str = "<unk>", pad_token: str = "<pad>", eos_token: str = "<eos>") -> Tokenizer:
+    
+    titles = [
+        t.lower().strip() + f" {eos_token}" for t in titles if 3 > len(t) > 15
+    ]
+    
     tokenizer = Tokenizer(models.BPE(unk_token=unk_token))
     tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel()
     tokenizer.decoder = decoders.ByteLevel()
@@ -117,11 +127,10 @@ def train_tokenizer(titles: list[str], vocab_size: int, unk_token: str = "<unk>"
 class BPETokenizer:
     def __init__(self, tokenizer: Tokenizer):
         self.tk = tokenizer
-        self.stoi = {tok: i for tok, i in tokenizer.get_vocab().items()}
-        self.itos = {i: tok for tok, i in tokenizer.get_vocab().items()}
+        self.eos_token = "<eos>"
 
     def encode(self, s: str) -> list[int]:
-        return self.tk.encode(s).ids
+        return self.tk.encode(s + f" {self.eos_token}").ids
 
     def decode(self, ids: list[int]) -> str:
         return self.tk.decode(ids, skip_special_tokens=True)
@@ -298,11 +307,31 @@ def main():
     ptr = 0
     step = 0
     t0 = time.time()
+    logit_ema = None
     for epoch in range(1, args.epochs + 1):
         for _ in tqdm(range(1, batches + 1), desc=f"Epoch {epoch}/{args.epochs}"):
             step += 1
             xb, yb, ptr = get_batch(train_ids, ptr, args.block_size, args.batch_size, device)
-            _, loss = model(xb, yb)
+            logits, loss = model(xb, yb)
+
+            if args.consistency:
+                with torch.no_grad():
+                    soft_logits = logits.detach()
+                    if logit_ema is None:
+                        logit_ema = soft_logits
+                    else:
+                        logit_ema = args.ema_decay * logit_ema + (1 - args.ema_decay) * soft_logits
+
+                # Consistency regularization
+                kl_loss = F.kl_div(
+                    F.log_softmax(logits, dim=-1),
+                    F.softmax(logit_ema, dim=-1),
+                    reduction="batchmean",
+                )
+                kl_loss = kl_loss * args.consistency_weight
+
+            loss = loss + kl_loss
+            
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
