@@ -13,6 +13,7 @@ from tqdm import tqdm
 import structlog
 from transformers import get_cosine_schedule_with_warmup
 from utils.dataset_utils import sliding_window
+import sys
 
 @dataclass
 class Hyperparameters:
@@ -31,13 +32,19 @@ class Hyperparameters:
     seed: int = 1337
     num_titles: int = 100_000
     context_len: int = 8
+    min_length: int = 3
+    max_length: int = 15
     val_frac: float = 0.10
     log_file: str = "./logs/mainrun.log"
     
     # Consistency regularization parameters
     consistency: bool = True
-    consistency_weight: float = 0.01
-    ema_decay = 0.95
+    consistency_weight: float = 0.2
+    ema_decay = 0.90
+    
+    # Augmentation parameters
+    pad_token: str = "<pad>"                
+    align: str = "left"              
 
 def configure_logging(log_file: str):
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
@@ -108,10 +115,10 @@ def iter_full_split(split_ids: torch.Tensor, block_size: int, batch_size: int, d
         y = batch[1:].view(batch_size, block_size).to(device)
         yield x, y
 
-def train_tokenizer(titles: list[str], vocab_size: int, unk_token: str = "<unk>", pad_token: str = "<pad>", eos_token: str = "<eos>") -> Tokenizer:
+def train_tokenizer(titles: list[str], vocab_size: int, min_length: int, max_length: int, unk_token: str = "<unk>", pad_token: str = "<pad>", eos_token: str = "<eos>") -> Tokenizer:
     
     titles = [
-        t.lower().strip() + f" {eos_token}" for t in titles if 3 > len(t) > 15
+        t.lower().strip() + f" {eos_token}" for t in titles if min_length > len(t) > max_length
     ]
     
     tokenizer = Tokenizer(models.BPE(unk_token=unk_token))
@@ -229,13 +236,19 @@ class GPT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), reduction='mean')
         return logits, loss
 
-def main():
+def main(train_name: str, pad_mode: str):
     args = Hyperparameters()
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     
+    kwargs = {
+    "pad_mode": pad_mode, 
+    "pad_token": args.pad_token,         
+    "align": args.align           
+    }
+    
     global logger
-    logger = configure_logging(args.log_file)
+    logger = configure_logging(args.log_file.replace(".log", f"_{train_name}_{pad_mode}.log"))
     
     hyperparams_dict = vars(args)
     logger.log("hyperparameters_configured", **hyperparams_dict)
@@ -247,12 +260,12 @@ def main():
     
     eos_token = "<eos>"
     
-    train_contexts = sliding_window(train_titles, args.context_len)
+    train_contexts = sliding_window(train_titles, args.context_len, **kwargs)
     
     train_text = eos_token.join(train_contexts) + eos_token
     val_text = eos_token.join(val_titles) + eos_token
     
-    tok = BPETokenizer(train_tokenizer(train_text+val_text, args.vocab_size, eos_token=eos_token))
+    tok = BPETokenizer(train_tokenizer(train_text+val_text, args.vocab_size, args.min_length, args.max_length, eos_token=eos_token))
     # train_text = eos_token.join(train_titles) + eos_token
     # val_text = eos_token.join(val_titles) + eos_token
     train_ids = torch.tensor(tok.encode(train_text), dtype=torch.long)
@@ -356,7 +369,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        main(sys.argv[1], sys.argv[2])
     finally:
         if logger and hasattr(logger, 'file_handler'):
             logger.file_handler.close()
