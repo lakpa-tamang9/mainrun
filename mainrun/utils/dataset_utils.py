@@ -1,10 +1,5 @@
 import re
 
-kwargs = {
-    "pad_mode": "cyclic_padding",  # default padding mode
-    "pad_token": "<pad>",           # default padding token
-    "align": "left"                 # default alignment for padding
-}
 def pad_sequence(words, context_size, **kwargs):
     """
     Pad the fixed length sequence to context_size with specified padding mode.
@@ -23,15 +18,15 @@ def pad_sequence(words, context_size, **kwargs):
     if pad_amount == 0:
         return words[:context_size]
 
-    if kwargs["pad_mode"] == "cyclic_padding":
+    if kwargs["pad_mode"] == "cyclic":
         padded_seq = (words * ((context_size + len_words - 1) // len_words))[:context_size]
         return padded_seq
 
-    elif kwargs["pad_mode"] == "edge_padding":
+    elif kwargs["pad_mode"] == "edge":
         filler = [words[0]] * pad_amount if kwargs["align"] == "left" else [words[-1]] * pad_amount
         return (filler + words) if kwargs["align"] == "left" else (words + filler)
 
-    elif kwargs["pad_mode"] == "token_padding":
+    elif kwargs["pad_mode"] == "token":
         filler = [kwargs["pad_token"]] * pad_amount
         return (filler + words) if kwargs["align"] == "left" else (words + filler)
     else:
@@ -39,7 +34,7 @@ def pad_sequence(words, context_size, **kwargs):
 
 
 
-def sliding_window(titles, context_size,
+def sliding_window(titles, context_size, **kwargs
 ):
     """
     Returns list of text contexts of length = context_size.
