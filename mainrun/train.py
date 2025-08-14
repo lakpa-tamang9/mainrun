@@ -39,7 +39,7 @@ class Hyperparameters:
     
     # Consistency regularization parameters
     consistency: bool = True
-    consistency_weight: float = 0.2
+    consistency_weight: float = 0.1
     ema_decay = 0.90
     
     # Augmentation parameters
@@ -118,7 +118,7 @@ def iter_full_split(split_ids: torch.Tensor, block_size: int, batch_size: int, d
 def train_tokenizer(titles: list[str], vocab_size: int, min_length: int, max_length: int, unk_token: str = "<unk>", pad_token: str = "<pad>", eos_token: str = "<eos>") -> Tokenizer:
     
     titles = [
-        t.lower().strip() + f" {eos_token}" for t in titles if min_length > len(t) > max_length
+        t.lower().strip() + f" {eos_token}" for t in titles if min_length <= len(t) <= max_length
     ]
     
     tokenizer = Tokenizer(models.BPE(unk_token=unk_token))
@@ -327,7 +327,7 @@ def main(train_name: str, pad_mode: str):
             xb, yb, ptr = get_batch(train_ids, ptr, args.block_size, args.batch_size, device)
             logits, loss = model(xb, yb)
 
-            if args.consistency:
+            if not "no" in train_name:
                 with torch.no_grad():
                     soft_logits = logits.detach()
                     if logit_ema is None:
