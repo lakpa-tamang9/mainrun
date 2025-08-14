@@ -327,7 +327,7 @@ def main(train_name: str, pad_mode: str):
             xb, yb, ptr = get_batch(train_ids, ptr, args.block_size, args.batch_size, device)
             logits, loss = model(xb, yb)
 
-            if not "no" in train_name:
+            if train_name == "cr":
                 with torch.no_grad():
                     soft_logits = logits.detach()
                     if logit_ema is None:
@@ -343,7 +343,9 @@ def main(train_name: str, pad_mode: str):
                 )
                 kl_loss = kl_loss * args.consistency_weight
 
-            loss = loss + kl_loss
+                loss = loss + kl_loss
+            else:
+                loss = loss
             
             opt.zero_grad(set_to_none=True)
             loss.backward()
